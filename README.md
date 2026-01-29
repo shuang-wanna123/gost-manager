@@ -29,13 +29,13 @@
 ## 📦 一键安装
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/shuang-wanna123/gost-manager/main/gost.sh)
+bash <(curl -sL https://raw.githubusercontent.com/shuang-wanna123/gost-manager/main/gg.sh)
 ```
 
 或者：
 
 ```bash
-wget -O gost.sh https://raw.githubusercontent.com/shuang-wanna123/gost-manager/main/gost.sh && chmod +x gost.sh && ./gost.sh
+wget -O gost.sh https://raw.githubusercontent.com/shuang-wanna123/gost-manager/main/gg.sh && chmod +x gost.sh && ./gg.sh
 ```
 
 ---
