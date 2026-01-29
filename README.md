@@ -47,7 +47,7 @@ wget -O gost.sh https://raw.githubusercontent.com/shuang-wanna123/gost-manager/m
 安装后直接运行：
 
 ```bash
-gost
+gg
 ```
 
 将显示管理菜单：
@@ -83,20 +83,6 @@ gost
 
 ===============================================
 ```
-
-### 快捷命令
-
-```bash
-gost              # 打开管理菜单
-gost status       # 查看运行状态
-gost start        # 启动服务
-gost stop         # 停止服务
-gost restart      # 重启服务
-gost log          # 查看实时日志
-gost uninstall    # 卸载 GOST
-```
-
----
 
 ## 🔧 部署架构
 
