@@ -1,13 +1,14 @@
 #!/bin/bash
 #===============================================
-# GOST 一键管理脚本
-# 支持: 安装/卸载/状态/修改配置
+# GOST 一键管理脚本 v1.0
+# 快捷命令: gg
 #===============================================
 
 GOST_PATH="/usr/local/bin/gost"
 GOST_SERVICE="/etc/systemd/system/gost.service"
 GOST_CONFIG="/etc/gost/config.json"
 GOST_VERSION="2.11.5"
+MANAGER_PATH="/usr/local/bin/gg"
 
 # 颜色
 RED='\033[0;31m'
@@ -16,11 +17,6 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BLUE='\033[0;34m'
 NC='\033[0m'
-
-# 打印函数
-print_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
-print_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # 打印 Logo
 print_logo() {
@@ -33,35 +29,35 @@ print_logo() {
     echo " ╚██████╔╝╚██████╔╝███████║   ██║   "
     echo "  ╚═════╝  ╚═════╝ ╚══════╝   ╚═╝   "
     echo -e "${NC}"
-    echo -e "${YELLOW}      GOST 一键管理脚本 v1.0${NC}"
+    echo -e "${YELLOW}      GOST 一键管理脚本 v1.1${NC}"
+    echo -e "${YELLOW}      快捷命令: gg${NC}"
     echo ""
 }
 
-# 检查是否安装
+# 检查是否已安装
 check_installed() {
-    if [ -f "$GOST_PATH" ] && [ -f "$GOST_SERVICE" ]; then
+    if [ -f "$GOST_SERVICE" ] && systemctl list-unit-files | grep -q "gost.service"; then
         return 0
     else
         return 1
     fi
 }
 
-# 获取当前配置
-get_current_config() {
-    if [ -f "$GOST_SERVICE" ]; then
-        CURRENT_CMD=$(grep "ExecStart=" "$GOST_SERVICE" | sed 's/ExecStart=//')
-        echo "$CURRENT_CMD"
+# 获取当前模式
+get_current_mode() {
+    if [ -f "$GOST_CONFIG" ]; then
+        grep '"mode"' "$GOST_CONFIG" 2>/dev/null | sed 's/.*: *"\(.*\)".*/\1/'
     fi
 }
 
 # 下载安装 gost
 install_gost_binary() {
     if [ -f "$GOST_PATH" ]; then
-        print_info "gost 已存在: $("$GOST_PATH" -V 2>&1 | head -n1)"
+        echo -e "${GREEN}[INFO]${NC} gost 已存在: $("$GOST_PATH" -V 2>&1 | head -n1)"
         return 0
     fi
     
-    print_info "开始下载 gost..."
+    echo -e "${GREEN}[INFO]${NC} 开始下载 gost..."
     
     ARCH=$(uname -m)
     case $ARCH in
@@ -69,26 +65,26 @@ install_gost_binary() {
         aarch64) ARCH="arm64" ;;
         armv7l)  ARCH="armv7" ;;
         i386|i686) ARCH="386" ;;
-        *)       print_error "不支持的架构: $ARCH"; return 1 ;;
+        *)       echo -e "${RED}[ERROR]${NC} 不支持的架构: $ARCH"; return 1 ;;
     esac
     
     DOWNLOAD_URL="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-${ARCH}-${GOST_VERSION}.gz"
-    print_info "下载地址: $DOWNLOAD_URL"
+    echo -e "${GREEN}[INFO]${NC} 下载地址: $DOWNLOAD_URL"
     
     cd /tmp
-    rm -f gost.gz gost
+    rm -f gost.gz gost 2>/dev/null
     
     if command -v wget &>/dev/null; then
         wget -q --show-progress -O gost.gz "$DOWNLOAD_URL"
     elif command -v curl &>/dev/null; then
         curl -L -o gost.gz "$DOWNLOAD_URL"
     else
-        print_error "请先安装 wget 或 curl"
+        echo -e "${RED}[ERROR]${NC} 请先安装 wget 或 curl"
         return 1
     fi
     
     if [ $? -ne 0 ] || [ ! -f gost.gz ]; then
-        print_error "下载失败"
+        echo -e "${RED}[ERROR]${NC} 下载失败"
         return 1
     fi
     
@@ -96,24 +92,21 @@ install_gost_binary() {
     chmod +x gost
     mv gost "$GOST_PATH"
     
-    print_info "gost 安装成功: $("$GOST_PATH" -V 2>&1 | head -n1)"
+    echo -e "${GREEN}[INFO]${NC} gost 安装成功: $("$GOST_PATH" -V 2>&1 | head -n1)"
     return 0
 }
 
-# 清理端口占用
+# 清理端口
 clean_port() {
     local PORT=$1
-    print_info "清理端口 ${PORT}..."
+    echo -e "${GREEN}[INFO]${NC} 清理端口 ${PORT}..."
     
-    # 停止 gost 服务
     systemctl stop gost 2>/dev/null
     
-    # 杀掉 gost 进程
     for PID in $(pgrep -x gost 2>/dev/null); do
         kill -9 $PID 2>/dev/null
     done
     
-    # 清理端口
     if command -v fuser &>/dev/null; then
         fuser -k ${PORT}/tcp 2>/dev/null
         fuser -k ${PORT}/udp 2>/dev/null
@@ -122,7 +115,7 @@ clean_port() {
     sleep 1
 }
 
-# 创建 systemd 服务
+# 创建服务
 create_service() {
     local EXEC_CMD=$1
     
@@ -148,11 +141,32 @@ EOF
     systemctl enable gost 2>/dev/null
 }
 
+# 安装快捷命令
+install_shortcut() {
+    cp -f "$(readlink -f "$0")" "$MANAGER_PATH" 2>/dev/null || cat "$(readlink -f "$0")" > "$MANAGER_PATH"
+    chmod +x "$MANAGER_PATH"
+    echo -e "${GREEN}[INFO]${NC} 快捷命令已安装: ${YELLOW}gg${NC}"
+}
+
 # 安装落地鸡
 install_landing() {
     print_logo
     echo -e "${GREEN}========== 安装落地鸡（SS服务端）==========${NC}"
     echo ""
+    
+    # 检查是否已安装
+    if check_installed; then
+        CURRENT_MODE=$(get_current_mode)
+        echo -e "${YELLOW}[警告]${NC} 检测到已安装 GOST 服务"
+        echo -e "       当前模式: ${CYAN}${CURRENT_MODE}${NC}"
+        echo ""
+        read -p "是否覆盖安装? [y/N]: " CONFIRM
+        if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}[INFO]${NC} 已取消安装"
+            return
+        fi
+        echo ""
+    fi
     
     # 交互输入
     read -p "请输入监听端口 [默认: 8443]: " INPUT_PORT
@@ -172,7 +186,7 @@ install_landing() {
     echo ""
     read -p "确认安装? [Y/n]: " CONFIRM
     if [[ "$CONFIRM" =~ ^[Nn]$ ]]; then
-        print_warn "已取消安装"
+        echo -e "${YELLOW}[INFO]${NC} 已取消安装"
         return
     fi
     
@@ -188,7 +202,7 @@ install_landing() {
     EXEC_CMD="${GOST_PATH} -L=ss://${SS_METHOD}:${SS_PASSWORD}@:${SS_PORT}"
     create_service "$EXEC_CMD"
     
-    # 保存配置信息
+    # 保存配置
     cat > "$GOST_CONFIG" << EOF
 {
     "mode": "landing",
@@ -199,9 +213,12 @@ install_landing() {
 EOF
     
     # 启动服务
-    print_info "启动服务..."
+    echo -e "${GREEN}[INFO]${NC} 启动服务..."
     systemctl start gost
     sleep 2
+    
+    # 安装快捷命令
+    install_shortcut
     
     # 检查状态
     if systemctl is-active --quiet gost; then
@@ -215,7 +232,7 @@ EOF
         echo -e "  加密: ${CYAN}${SS_METHOD}${NC}"
         echo -e "  密码: ${CYAN}${SS_PASSWORD}${NC}"
         echo ""
-        echo -e "  管理命令: ${YELLOW}gost${NC}"
+        echo -e "  快捷命令: ${YELLOW}gg${NC}"
         echo ""
         echo -e "${GREEN}============================================${NC}"
     else
@@ -233,10 +250,24 @@ install_relay() {
     echo -e "${GREEN}========== 安装中转鸡（端口转发）==========${NC}"
     echo ""
     
+    # 检查是否已安装
+    if check_installed; then
+        CURRENT_MODE=$(get_current_mode)
+        echo -e "${YELLOW}[警告]${NC} 检测到已安装 GOST 服务"
+        echo -e "       当前模式: ${CYAN}${CURRENT_MODE}${NC}"
+        echo ""
+        read -p "是否覆盖安装? [y/N]: " CONFIRM
+        if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}[INFO]${NC} 已取消安装"
+            return
+        fi
+        echo ""
+    fi
+    
     # 交互输入
     read -p "请输入落地鸡IP [必填]: " REMOTE_IP
     if [ -z "$REMOTE_IP" ]; then
-        print_error "落地鸡IP不能为空!"
+        echo -e "${RED}[ERROR]${NC} 落地鸡IP不能为空!"
         return 1
     fi
     
@@ -253,7 +284,7 @@ install_relay() {
     echo ""
     read -p "确认安装? [Y/n]: " CONFIRM
     if [[ "$CONFIRM" =~ ^[Nn]$ ]]; then
-        print_warn "已取消安装"
+        echo -e "${YELLOW}[INFO]${NC} 已取消安装"
         return
     fi
     
@@ -262,12 +293,12 @@ install_relay() {
     # 安装 gost
     install_gost_binary || return 1
     
-    # 测试落地鸡连通性
-    print_info "测试落地鸡连通性..."
+    # 测试落地鸡
+    echo -e "${GREEN}[INFO]${NC} 测试落地鸡连通性..."
     if timeout 3 bash -c "echo >/dev/tcp/${REMOTE_IP}/${REMOTE_PORT}" 2>/dev/null; then
-        print_info "落地鸡连接正常"
+        echo -e "${GREEN}[INFO]${NC} 落地鸡连接正常"
     else
-        print_warn "无法连接落地鸡，请确认落地鸡已启动"
+        echo -e "${YELLOW}[WARN]${NC} 无法连接落地鸡，请确认落地鸡已启动"
     fi
     
     # 清理端口
@@ -277,7 +308,7 @@ install_relay() {
     EXEC_CMD="${GOST_PATH} -L=tcp://:${LOCAL_PORT}/${REMOTE_IP}:${REMOTE_PORT} -L=udp://:${LOCAL_PORT}/${REMOTE_IP}:${REMOTE_PORT}"
     create_service "$EXEC_CMD"
     
-    # 保存配置信息
+    # 保存配置
     cat > "$GOST_CONFIG" << EOF
 {
     "mode": "relay",
@@ -288,9 +319,12 @@ install_relay() {
 EOF
     
     # 启动服务
-    print_info "启动服务..."
+    echo -e "${GREEN}[INFO]${NC} 启动服务..."
     systemctl start gost
     sleep 2
+    
+    # 安装快捷命令
+    install_shortcut
     
     # 检查状态
     if systemctl is-active --quiet gost; then
@@ -303,7 +337,7 @@ EOF
         echo -e "  本地监听: ${CYAN}0.0.0.0:${LOCAL_PORT}${NC} (TCP+UDP)"
         echo -e "  转发目标: ${CYAN}${REMOTE_IP}:${REMOTE_PORT}${NC}"
         echo ""
-        echo -e "  管理命令: ${YELLOW}gost${NC}"
+        echo -e "  快捷命令: ${YELLOW}gg${NC}"
         echo ""
         echo -e "${GREEN}============================================${NC}"
     else
@@ -322,7 +356,8 @@ show_status() {
     echo ""
     
     if ! check_installed; then
-        print_warn "GOST 未安装"
+        echo -e "  安装状态: ${YELLOW}● 未安装${NC}"
+        echo ""
         return
     fi
     
@@ -333,25 +368,46 @@ show_status() {
         echo -e "  服务状态: ${RED}● 已停止${NC}"
     fi
     
-    # 版本信息
-    echo -e "  GOST版本: ${CYAN}$("$GOST_PATH" -V 2>&1 | head -n1)${NC}"
-    
-    # 当前配置
-    echo ""
-    echo -e "${YELLOW}当前配置:${NC}"
-    if [ -f "$GOST_CONFIG" ]; then
-        cat "$GOST_CONFIG" | grep -v "^[{}]" | sed 's/[",]//g' | sed 's/^/  /'
+    # 版本
+    if [ -f "$GOST_PATH" ]; then
+        echo -e "  GOST版本: ${CYAN}$("$GOST_PATH" -V 2>&1 | head -n1)${NC}"
     fi
     
-    # 启动命令
+    # 当前模式
+    MODE=$(get_current_mode)
+    echo -e "  当前模式: ${CYAN}${MODE:-未知}${NC}"
+    
+    # 配置详情
     echo ""
-    echo -e "${YELLOW}启动命令:${NC}"
-    get_current_config | sed 's/^/  /'
+    echo -e "${YELLOW}配置详情:${NC}"
+    if [ -f "$GOST_CONFIG" ]; then
+        if [ "$MODE" = "landing" ]; then
+            PORT=$(grep '"port"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
+            METHOD=$(grep '"method"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
+            PASS=$(grep '"password"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
+            echo -e "  端口: ${CYAN}${PORT}${NC}"
+            echo -e "  加密: ${CYAN}${METHOD}${NC}"
+            echo -e "  密码: ${CYAN}${PASS}${NC}"
+        elif [ "$MODE" = "relay" ]; then
+            LOCAL=$(grep '"local_port"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
+            REMOTE_IP=$(grep '"remote_ip"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
+            REMOTE_PORT=$(grep '"remote_port"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
+            echo -e "  本地端口: ${CYAN}${LOCAL}${NC}"
+            echo -e "  落地鸡: ${CYAN}${REMOTE_IP}:${REMOTE_PORT}${NC}"
+        fi
+    fi
     
     # 监听端口
     echo ""
     echo -e "${YELLOW}监听端口:${NC}"
-    ss -tlnp 2>/dev/null | grep gost | awk '{print "  " $4}' || echo "  (无)"
+    PORTS=$(ss -tlnp 2>/dev/null | grep gost | awk '{print $4}')
+    if [ -n "$PORTS" ]; then
+        echo "$PORTS" | while read line; do
+            echo -e "  ${CYAN}${line}${NC}"
+        done
+    else
+        echo "  (无)"
+    fi
     
     echo ""
     echo -e "${GREEN}====================================${NC}"
@@ -364,23 +420,15 @@ modify_config() {
     echo ""
     
     if ! check_installed; then
-        print_warn "GOST 未安装，请先安装"
+        echo -e "${YELLOW}[WARN]${NC} GOST 未安装，请先安装"
         return
     fi
     
-    # 读取当前配置
-    if [ -f "$GOST_CONFIG" ]; then
-        MODE=$(grep '"mode"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
-    else
-        print_warn "配置文件不存在，请重新安装"
-        return
-    fi
-    
+    MODE=$(get_current_mode)
     echo -e "当前模式: ${CYAN}${MODE}${NC}"
     echo ""
     
     if [ "$MODE" = "landing" ]; then
-        # 落地鸡配置修改
         CURRENT_PORT=$(grep '"port"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
         CURRENT_METHOD=$(grep '"method"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
         CURRENT_PASS=$(grep '"password"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
@@ -413,7 +461,6 @@ modify_config() {
 EOF
         
     elif [ "$MODE" = "relay" ]; then
-        # 中转鸡配置修改
         CURRENT_LOCAL=$(grep '"local_port"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
         CURRENT_REMOTE_IP=$(grep '"remote_ip"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
         CURRENT_REMOTE_PORT=$(grep '"remote_port"' "$GOST_CONFIG" | sed 's/.*: *"\(.*\)".*/\1/')
@@ -444,55 +491,61 @@ EOF
     "remote_port": "${REMOTE_PORT}"
 }
 EOF
+    else
+        echo -e "${RED}[ERROR]${NC} 无法识别当前配置，请重新安装"
+        return
     fi
     
     systemctl restart gost
     sleep 2
     
     if systemctl is-active --quiet gost; then
-        print_info "配置修改成功，服务已重启"
+        echo ""
+        echo -e "${GREEN}[INFO]${NC} 配置修改成功，服务已重启"
     else
-        print_error "服务启动失败"
+        echo ""
+        echo -e "${RED}[ERROR]${NC} 服务启动失败"
         systemctl status gost --no-pager
     fi
 }
 
-# 重启服务
-restart_service() {
-    print_info "重启 GOST 服务..."
-    systemctl restart gost
+# 启动服务
+start_service() {
+    echo -e "${GREEN}[INFO]${NC} 启动 GOST 服务..."
+    systemctl start gost
     sleep 2
     if systemctl is-active --quiet gost; then
-        print_info "重启成功"
+        echo -e "${GREEN}[INFO]${NC} 启动成功"
     else
-        print_error "重启失败"
+        echo -e "${RED}[ERROR]${NC} 启动失败"
         systemctl status gost --no-pager
     fi
 }
 
 # 停止服务
 stop_service() {
-    print_info "停止 GOST 服务..."
+    echo -e "${GREEN}[INFO]${NC} 停止 GOST 服务..."
     systemctl stop gost
-    print_info "服务已停止"
+    echo -e "${GREEN}[INFO]${NC} 服务已停止"
 }
 
-# 启动服务
-start_service() {
-    print_info "启动 GOST 服务..."
-    systemctl start gost
+# 重启服务
+restart_service() {
+    echo -e "${GREEN}[INFO]${NC} 重启 GOST 服务..."
+    systemctl restart gost
     sleep 2
     if systemctl is-active --quiet gost; then
-        print_info "启动成功"
+        echo -e "${GREEN}[INFO]${NC} 重启成功"
     else
-        print_error "启动失败"
+        echo -e "${RED}[ERROR]${NC} 重启失败"
         systemctl status gost --no-pager
     fi
 }
 
 # 查看日志
 show_logs() {
-    echo -e "${GREEN}[INFO]${NC} 显示最近日志 (Ctrl+C 退出)..."
+    echo -e "${GREEN}[INFO]${NC} 显示实时日志 (Ctrl+C 退出)..."
+    echo ""
     journalctl -u gost -f
 }
 
@@ -502,26 +555,24 @@ uninstall() {
     echo -e "${RED}========== 卸载 GOST ==========${NC}"
     echo ""
     
-    read -p "确认卸载 GOST? [y/N]: " CONFIRM
+    read -p "确认完全卸载 GOST? [y/N]: " CONFIRM
     if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-        print_warn "已取消"
+        echo -e "${YELLOW}[INFO]${NC} 已取消"
         return
     fi
     
-    print_info "停止服务..."
+    echo ""
+    echo -e "${GREEN}[INFO]${NC} 停止服务..."
     systemctl stop gost 2>/dev/null
     systemctl disable gost 2>/dev/null
     
-    print_info "删除文件..."
+    echo -e "${GREEN}[INFO]${NC} 删除文件..."
     rm -f "$GOST_PATH"
     rm -f "$GOST_SERVICE"
     rm -rf /etc/gost
-    rm -f /usr/local/bin/gost-manager
+    rm -f "$MANAGER_PATH"
     
     systemctl daemon-reload
-    
-    # 删除快捷命令
-    sed -i '/alias gost=/d' ~/.bashrc 2>/dev/null
     
     echo ""
     echo -e "${GREEN}============================================${NC}"
@@ -529,43 +580,26 @@ uninstall() {
     echo -e "${GREEN}============================================${NC}"
 }
 
-# 安装快捷命令
-install_shortcut() {
-    # 保存当前脚本到系统目录
-    SCRIPT_PATH="/usr/local/bin/gost-manager"
-    
-    # 如果当前脚本不在系统目录，复制过去
-    if [ "$(readlink -f "$0")" != "$SCRIPT_PATH" ]; then
-        cp -f "$0" "$SCRIPT_PATH" 2>/dev/null || cat "$0" > "$SCRIPT_PATH"
-        chmod +x "$SCRIPT_PATH"
-    fi
-    
-    # 创建 gost 快捷命令
-    ln -sf "$SCRIPT_PATH" /usr/local/bin/g 2>/dev/null
-    
-    # 添加别名
-    if ! grep -q "alias gost=" ~/.bashrc 2>/dev/null; then
-        echo "alias gost='$SCRIPT_PATH'" >> ~/.bashrc
-    fi
-}
-
 # 主菜单
 main_menu() {
     while true; do
         print_logo
         
-        # 检查状态
+        # 状态显示
         if check_installed; then
             if systemctl is-active --quiet gost; then
                 STATUS="${GREEN}● 运行中${NC}"
             else
                 STATUS="${RED}● 已停止${NC}"
             fi
+            MODE=$(get_current_mode)
+            MODE_TEXT="(${MODE})"
         else
             STATUS="${YELLOW}● 未安装${NC}"
+            MODE_TEXT=""
         fi
         
-        echo -e "  当前状态: $STATUS"
+        echo -e "  当前状态: $STATUS ${CYAN}${MODE_TEXT}${NC}"
         echo ""
         echo -e "${CYAN}==================== 菜单 ====================${NC}"
         echo ""
@@ -598,45 +632,14 @@ main_menu() {
             7) stop_service ;;
             8) restart_service ;;
             9) uninstall ;;
-            0) echo "再见!"; exit 0 ;;
-            *) print_error "无效选项" ;;
+            0) echo ""; echo "再见!"; exit 0 ;;
+            *) echo -e "${RED}[ERROR]${NC} 无效选项" ;;
         esac
         
         echo ""
-        read -p "按回车键继续..." 
+        read -p "按回车键继续..."
     done
 }
 
-# 命令行参数处理
-case "$1" in
-    status|s)
-        show_status
-        ;;
-    start)
-        start_service
-        ;;
-    stop)
-        stop_service
-        ;;
-    restart|r)
-        restart_service
-        ;;
-    log|logs|l)
-        show_logs
-        ;;
-    uninstall)
-        uninstall
-        ;;
-    landing)
-        install_landing
-        install_shortcut
-        ;;
-    relay)
-        install_relay
-        install_shortcut
-        ;;
-    *)
-        install_shortcut
-        main_menu
-        ;;
-esac
+# 入口
+main_menu
