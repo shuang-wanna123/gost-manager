@@ -28,18 +28,15 @@ msg_info()  { echo -e "${G}[✓]${N} $1"; }
 msg_warn()  { echo -e "${Y}[!]${N} $1"; }
 msg_error() { echo -e "${R}[✗]${N} $1"; }
 
-# 按任意键继续
 pause() {
     echo ""
     read -rp "按回车键继续..."
 }
 
-# 初始化目录
 init_env() {
     mkdir -p "$TUNNEL_DIR"
 }
 
-# 打印Logo
 show_logo() {
     clear
     echo -e "${C}"
@@ -100,7 +97,6 @@ install_gost() {
     msg_info "GOST 安装成功: $($GOST_BIN -V 2>&1 | head -1)"
 }
 
-# 安装快捷命令
 install_cmd() {
     local script_path
     script_path="$(readlink -f "$0")"
@@ -115,22 +111,18 @@ install_cmd() {
 # 隧道核心函数
 #===============================================
 
-# 获取服务名
 svc_name() {
     echo "${SERVICE_PREFIX}-$1"
 }
 
-# 获取所有隧道名
 get_tunnels() {
     find "$TUNNEL_DIR" -maxdepth 1 -name "*.json" -printf "%f\n" 2>/dev/null | sed 's/\.json$//' | sort
 }
 
-# 隧道数量
 tunnel_count() {
     get_tunnels | wc -l
 }
 
-# 运行中的隧道数
 running_count() {
     local count=0
     for t in $(get_tunnels); do
@@ -139,18 +131,15 @@ running_count() {
     echo "$count"
 }
 
-# 隧道是否存在
 tunnel_exists() {
     [[ -f "$TUNNEL_DIR/$1.json" ]]
 }
 
-# 读取隧道配置
 get_conf() {
     local name=$1 key=$2
     grep "\"$key\"" "$TUNNEL_DIR/$name.json" 2>/dev/null | sed 's/.*: *"\(.*\)".*/\1/'
 }
 
-# 隧道状态
 tunnel_status() {
     if systemctl is-active --quiet "$(svc_name "$1")" 2>/dev/null; then
         echo -e "${G}运行中${N}"
@@ -159,7 +148,6 @@ tunnel_status() {
     fi
 }
 
-# 创建systemd服务
 create_service() {
     local name=$1 cmd=$2
     local svc
@@ -185,7 +173,6 @@ EOF
     systemctl enable "$svc" &>/dev/null
 }
 
-# 删除服务
 remove_service() {
     local svc
     svc=$(svc_name "$1")
@@ -195,22 +182,18 @@ remove_service() {
     systemctl daemon-reload
 }
 
-# 启动隧道
 start_tunnel() {
     systemctl start "$(svc_name "$1")"
 }
 
-# 停止隧道
 stop_tunnel() {
     systemctl stop "$(svc_name "$1")"
 }
 
-# 重启隧道
 restart_tunnel() {
     systemctl restart "$(svc_name "$1")"
 }
 
-# 清理端口
 kill_port() {
     local port=$1
     if command -v fuser &>/dev/null; then
@@ -248,8 +231,7 @@ add_landing() {
     echo -e "${C}>>> 添加落地隧道${N}"
     echo ""
 
-    # 名称
-    read -rp "隧道名称 [默认: ss-8443]: " name
+    read -rp "隧道名称 [回车默认: ss-8443]: " name
     name=${name:-ss-8443}
     name=$(echo "$name" | tr ' ' '-')
 
@@ -260,17 +242,15 @@ add_landing() {
         remove_service "$name"
     fi
 
-    # 配置
-    read -rp "监听端口 [默认: 8443]: " port
+    read -rp "请设置监听端口 [回车默认: 8443]: " port
     port=${port:-8443}
 
-    read -rp "加密方式 [默认: chacha20-ietf-poly1305]: " method
+    read -rp "请设置加密方式 [回车默认: chacha20-ietf-poly1305]: " method
     method=${method:-chacha20-ietf-poly1305}
 
-    read -rp "密码 [默认: Qwert1470]: " passwd
+    read -rp "请设置密码 [回车默认: Qwert1470]: " passwd
     passwd=${passwd:-Qwert1470}
 
-    # 确认
     echo ""
     echo -e "${Y}请确认配置:${N}"
     echo "  名称: $name"
@@ -281,14 +261,11 @@ add_landing() {
     read -rp "确认创建? [Y/n]: " yn
     [[ "$yn" =~ ^[Nn]$ ]] && return
 
-    # 安装GOST
     install_gost || return 1
     init_env
 
-    # 清理端口
     kill_port "$port"
 
-    # 保存配置
     cat > "$TUNNEL_DIR/$name.json" <<EOF
 {
     "name": "$name",
@@ -299,18 +276,14 @@ add_landing() {
 }
 EOF
 
-    # 创建服务
     local cmd="$GOST_BIN -L=ss://${method}:${passwd}@:${port}"
     create_service "$name" "$cmd"
 
-    # 启动
     start_tunnel "$name"
     sleep 2
 
-    # 安装快捷命令
     install_cmd
 
-    # 结果
     if systemctl is-active --quiet "$(svc_name "$name")"; then
         echo ""
         echo -e "${G}════════════════════════════════════${N}"
@@ -332,8 +305,7 @@ add_relay() {
     echo -e "${C}>>> 添加中转隧道${N}"
     echo ""
 
-    # 名称
-    read -rp "隧道名称 [默认: relay-51520]: " name
+    read -rp "隧道名称 [回车默认: relay-51520]: " name
     name=${name:-relay-51520}
     name=$(echo "$name" | tr ' ' '-')
 
@@ -344,20 +316,18 @@ add_relay() {
         remove_service "$name"
     fi
 
-    # 配置
-    read -rp "落地鸡 IP [必填]: " remote_ip
+    read -rp "请输入落地鸡 IP [必填]: " remote_ip
     if [[ -z "$remote_ip" ]]; then
         msg_error "IP 不能为空"
         return
     fi
 
-    read -rp "落地鸡端口 [默认: 8443]: " remote_port
+    read -rp "请设置落地鸡端口 [回车默认: 8443]: " remote_port
     remote_port=${remote_port:-8443}
 
-    read -rp "本地监听端口 [默认: 51520]: " local_port
+    read -rp "请设置本地监听端口 [回车默认: 51520]: " local_port
     local_port=${local_port:-51520}
 
-    # 确认
     echo ""
     echo -e "${Y}请确认配置:${N}"
     echo "  名称: $name"
@@ -367,11 +337,9 @@ add_relay() {
     read -rp "确认创建? [Y/n]: " yn
     [[ "$yn" =~ ^[Nn]$ ]] && return
 
-    # 安装GOST
     install_gost || return 1
     init_env
 
-    # 测试连通
     msg_info "测试落地鸡连通性..."
     if timeout 3 bash -c "echo >/dev/tcp/$remote_ip/$remote_port" 2>/dev/null; then
         msg_info "连接正常"
@@ -379,10 +347,8 @@ add_relay() {
         msg_warn "无法连接，继续创建..."
     fi
 
-    # 清理端口
     kill_port "$local_port"
 
-    # 保存配置
     cat > "$TUNNEL_DIR/$name.json" <<EOF
 {
     "name": "$name",
@@ -393,18 +359,14 @@ add_relay() {
 }
 EOF
 
-    # 创建服务
     local cmd="$GOST_BIN -L=tcp://:${local_port}/${remote_ip}:${remote_port} -L=udp://:${local_port}/${remote_ip}:${remote_port}"
     create_service "$name" "$cmd"
 
-    # 启动
     start_tunnel "$name"
     sleep 2
 
-    # 安装快捷命令
     install_cmd
 
-    # 结果
     if systemctl is-active --quiet "$(svc_name "$name")"; then
         echo ""
         echo -e "${G}════════════════════════════════════${N}"
@@ -483,7 +445,6 @@ menu_manage() {
         return
     fi
 
-    # 列出隧道供选择
     echo "选择要管理的隧道:"
     echo ""
 
@@ -642,19 +603,16 @@ menu_uninstall() {
 
     echo ""
 
-    # 删除所有隧道
     for t in $(get_tunnels); do
         msg_info "删除隧道: $t"
         remove_service "$t"
         rm -f "$TUNNEL_DIR/$t.json"
     done
 
-    # 删除旧版服务
     systemctl stop gost &>/dev/null
     systemctl disable gost &>/dev/null
     rm -f /etc/systemd/system/gost.service
 
-    # 删除文件
     rm -f "$GOST_BIN"
     rm -rf "$CONF_DIR"
     rm -f "$MANAGER_CMD"
@@ -679,7 +637,6 @@ main_menu() {
         total=$(tunnel_count)
         running=$(running_count)
 
-        # GOST状态
         if check_gost; then
             echo -e "  GOST: ${G}已安装${N} ($($GOST_BIN -V 2>&1 | grep -oP 'gost \K[0-9.]+'))"
         else
@@ -718,14 +675,11 @@ main_menu() {
 # 入口
 #===============================================
 
-# 必须root运行
 if [[ $EUID -ne 0 ]]; then
     echo -e "${R}[✗]${N} 请使用 root 用户运行"
     exit 1
 fi
 
-# 初始化
 init_env
 
-# 启动主菜单
 main_menu
