@@ -4,7 +4,6 @@
 # 快捷命令: gg
 #===============================================
 
-# 配置路径
 GOST_BIN="/usr/local/bin/gost"
 CONF_DIR="/etc/gost"
 TUNNEL_DIR="/etc/gost/tunnels"
@@ -12,7 +11,6 @@ SERVICE_PREFIX="gost-tun"
 MANAGER_CMD="/usr/local/bin/gg"
 GOST_VER="2.11.5"
 
-# 颜色定义
 R='\033[0;31m'
 G='\033[0;32m'
 Y='\033[1;33m'
@@ -77,7 +75,7 @@ install_gost() {
     esac
 
     local url="https://github.com/ginuerzh/gost/releases/download/v${GOST_VER}/gost-linux-${arch}-${GOST_VER}.gz"
-    
+
     cd /tmp || return 1
     rm -f gost.gz gost 2>/dev/null
 
@@ -98,12 +96,24 @@ install_gost() {
 }
 
 install_cmd() {
-    local script_path
-    script_path="$(readlink -f "$0")"
-    
-    if [[ -f "$script_path" && "$script_path" != "$MANAGER_CMD" ]]; then
-        cp -f "$script_path" "$MANAGER_CMD"
-        chmod +x "$MANAGER_CMD"
+    # 已经是 gg 命令运行则跳过
+    [[ "$0" == "$MANAGER_CMD" ]] && return 0
+
+    local src=""
+
+    # 尝试获取脚本真实路径
+    if [[ -f "${BASH_SOURCE[0]}" ]]; then
+        src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    elif [[ -f "$0" ]]; then
+        src="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
+    fi
+
+    # 复制到系统目录
+    if [[ -n "$src" && -f "$src" ]]; then
+        cp -f "$src" "$MANAGER_CMD" 2>/dev/null
+        chmod +x "$MANAGER_CMD" 2>/dev/null
+        hash -r 2>/dev/null
+        msg_info "快捷命令已安装: gg"
     fi
 }
 
@@ -116,11 +126,18 @@ svc_name() {
 }
 
 get_tunnels() {
-    find "$TUNNEL_DIR" -maxdepth 1 -name "*.json" -printf "%f\n" 2>/dev/null | sed 's/\.json$//' | sort
+    # 兼容性写法，避免 find -printf 问题
+    for f in "$TUNNEL_DIR"/*.json; do
+        [[ -f "$f" ]] && basename "$f" .json
+    done 2>/dev/null | sort
 }
 
 tunnel_count() {
-    get_tunnels | wc -l
+    local count=0
+    for f in "$TUNNEL_DIR"/*.json; do
+        [[ -f "$f" ]] && ((count++))
+    done 2>/dev/null
+    echo "$count"
 }
 
 running_count() {
@@ -150,8 +167,7 @@ tunnel_status() {
 
 create_service() {
     local name=$1 cmd=$2
-    local svc
-    svc=$(svc_name "$name")
+    local svc=$(svc_name "$name")
 
     cat > "/etc/systemd/system/${svc}.service" <<EOF
 [Unit]
@@ -174,25 +190,16 @@ EOF
 }
 
 remove_service() {
-    local svc
-    svc=$(svc_name "$1")
+    local svc=$(svc_name "$1")
     systemctl stop "$svc" &>/dev/null
     systemctl disable "$svc" &>/dev/null
     rm -f "/etc/systemd/system/${svc}.service"
     systemctl daemon-reload
 }
 
-start_tunnel() {
-    systemctl start "$(svc_name "$1")"
-}
-
-stop_tunnel() {
-    systemctl stop "$(svc_name "$1")"
-}
-
-restart_tunnel() {
-    systemctl restart "$(svc_name "$1")"
-}
+start_tunnel()   { systemctl start "$(svc_name "$1")"; }
+stop_tunnel()    { systemctl stop "$(svc_name "$1")"; }
+restart_tunnel() { systemctl restart "$(svc_name "$1")"; }
 
 kill_port() {
     local port=$1
@@ -263,7 +270,6 @@ add_landing() {
 
     install_gost || return 1
     init_env
-
     kill_port "$port"
 
     cat > "$TUNNEL_DIR/$name.json" <<EOF
@@ -278,10 +284,8 @@ EOF
 
     local cmd="$GOST_BIN -L=ss://${method}:${passwd}@:${port}"
     create_service "$name" "$cmd"
-
     start_tunnel "$name"
     sleep 2
-
     install_cmd
 
     if systemctl is-active --quiet "$(svc_name "$name")"; then
@@ -361,10 +365,8 @@ EOF
 
     local cmd="$GOST_BIN -L=tcp://:${local_port}/${remote_ip}:${remote_port} -L=udp://:${local_port}/${remote_ip}:${remote_port}"
     create_service "$name" "$cmd"
-
     start_tunnel "$name"
     sleep 2
-
     install_cmd
 
     if systemctl is-active --quiet "$(svc_name "$name")"; then
@@ -391,8 +393,7 @@ menu_list() {
     echo -e "${G}══════════ 隧道列表 ══════════${N}"
     echo ""
 
-    local total
-    total=$(tunnel_count)
+    local total=$(tunnel_count)
 
     if [[ "$total" -eq 0 ]]; then
         echo -e "  ${Y}暂无隧道，请先添加${N}"
@@ -404,27 +405,19 @@ menu_list() {
     echo "  ────────────────────────────────────────────────────────────────"
 
     for t in $(get_tunnels); do
-        local type status addr target
-        type=$(get_conf "$t" "type")
-        status=$(tunnel_status "$t")
+        local type=$(get_conf "$t" "type")
+        local status=$(tunnel_status "$t")
 
         if [[ "$type" == "landing" ]]; then
-            local port
-            port=$(get_conf "$t" "port")
-            addr="0.0.0.0:$port"
-            target="-"
-            printf "  %-15s %-8s %-20b %-20s %s\n" "$t" "落地" "$status" "$addr" "$target"
+            local port=$(get_conf "$t" "port")
+            printf "  %-15s %-8s %-20b %-20s %s\n" "$t" "落地" "$status" "0.0.0.0:$port" "-"
         else
-            local lp rip rp
-            lp=$(get_conf "$t" "local_port")
-            rip=$(get_conf "$t" "remote_ip")
-            rp=$(get_conf "$t" "remote_port")
-            addr="0.0.0.0:$lp"
-            target="$rip:$rp"
-            printf "  %-15s %-8s %-20b %-20s %s\n" "$t" "中转" "$status" "$addr" "$target"
+            local lp=$(get_conf "$t" "local_port")
+            local rip=$(get_conf "$t" "remote_ip")
+            local rp=$(get_conf "$t" "remote_port")
+            printf "  %-15s %-8s %-20b %-20s %s\n" "$t" "中转" "$status" "0.0.0.0:$lp" "$rip:$rp"
         fi
     done
-
     echo ""
 }
 
@@ -437,8 +430,7 @@ menu_manage() {
     echo -e "${B}══════════ 隧道管理 ══════════${N}"
     echo ""
 
-    local total
-    total=$(tunnel_count)
+    local total=$(tunnel_count)
 
     if [[ "$total" -eq 0 ]]; then
         echo -e "  ${Y}暂无隧道${N}"
@@ -451,8 +443,7 @@ menu_manage() {
     local i=1
     declare -a arr
     for t in $(get_tunnels); do
-        local status
-        status=$(tunnel_status "$t")
+        local status=$(tunnel_status "$t")
         echo -e "  ${G}$i.${N} $t [$status]"
         arr[$i]=$t
         ((i++))
@@ -466,8 +457,7 @@ menu_manage() {
     [[ "$choice" == "0" ]] && return
     [[ -z "${arr[$choice]}" ]] && { msg_error "无效选项"; return; }
 
-    local selected="${arr[$choice]}"
-    manage_single "$selected"
+    manage_single "${arr[$choice]}"
 }
 
 manage_single() {
@@ -488,20 +478,9 @@ manage_single() {
     read -rp "请选择 [0-6]: " choice
 
     case $choice in
-        1)
-            start_tunnel "$name"
-            sleep 1
-            msg_info "已启动"
-            ;;
-        2)
-            stop_tunnel "$name"
-            msg_info "已停止"
-            ;;
-        3)
-            restart_tunnel "$name"
-            sleep 1
-            msg_info "已重启"
-            ;;
+        1) start_tunnel "$name"; sleep 1; msg_info "已启动" ;;
+        2) stop_tunnel "$name"; msg_info "已停止" ;;
+        3) restart_tunnel "$name"; sleep 1; msg_info "已重启" ;;
         4)
             echo ""
             echo -e "${C}═══ 日志 (Ctrl+C 退出) ═══${N}"
@@ -538,8 +517,7 @@ menu_batch() {
     echo -e "${B}══════════ 批量操作 ══════════${N}"
     echo ""
 
-    local total
-    total=$(tunnel_count)
+    local total=$(tunnel_count)
 
     if [[ "$total" -eq 0 ]]; then
         echo -e "  ${Y}暂无隧道${N}"
@@ -612,11 +590,9 @@ menu_uninstall() {
     systemctl stop gost &>/dev/null
     systemctl disable gost &>/dev/null
     rm -f /etc/systemd/system/gost.service
-
     rm -f "$GOST_BIN"
     rm -rf "$CONF_DIR"
     rm -f "$MANAGER_CMD"
-
     systemctl daemon-reload
 
     echo ""
@@ -633,9 +609,8 @@ main_menu() {
     while true; do
         show_logo
 
-        local total running
-        total=$(tunnel_count)
-        running=$(running_count)
+        local total=$(tunnel_count)
+        local running=$(running_count)
 
         if check_gost; then
             echo -e "  GOST: ${G}已安装${N} ($($GOST_BIN -V 2>&1 | grep -oP 'gost \K[0-9.]+'))"
@@ -644,7 +619,6 @@ main_menu() {
         fi
         echo -e "  隧道: ${G}$running${N} 运行 / ${C}$total${N} 总计"
         echo ""
-
         echo -e "${C}═══════════════ 主菜单 ═══════════════${N}"
         echo ""
         echo -e "  ${G}1.${N} 添加隧道"
@@ -681,5 +655,4 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 init_env
-
 main_menu
